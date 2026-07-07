@@ -10,5 +10,8 @@ replicas:
     count: 1
 
 # Common label for staging
-commonLabels:
-  environment: staging
+labels:
+  - pairs:
+      environment: staging
+    includeTemplates: true
+    includeSelectors: true

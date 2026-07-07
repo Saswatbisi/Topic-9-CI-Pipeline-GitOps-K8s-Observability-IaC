@@ -10,5 +10,8 @@ replicas:
     count: 3
 
 # Common label for production
-commonLabels:
-  environment: production
+labels:
+  - pairs:
+      environment: production
+    includeTemplates: true
+    includeSelectors: true
