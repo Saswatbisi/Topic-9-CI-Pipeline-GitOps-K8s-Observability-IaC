@@ -1,0 +1,130 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-node: '18'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tests
+        run: npm run test
+
+  security:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # 1. GitLeaks Secrets Scan
+      - name: Run GitLeaks Secrets Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Semgrep SAST Scan
+      - name: Run Semgrep SAST Scan
+        run: |
+          pip install semgrep
+          semgrep --config=auto .
+
+      # 3. Trivy Container Image Scan (files/config scan since image is not built yet)
+      - name: Run Trivy Vulnerability Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          security-checks: 'vuln,secret,config'
+          format: 'table'
+          exit-code: '1' # Blocking step
+
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: security
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      # Generate semantic version tag (mocked using github.sha or a tag generator)
+      - name: Generate version tag
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./backend/Dockerfile # Multi-stage Docker build
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_URL }}/orion-lms-app:v1.0.0-${{ steps.vars.outputs.sha_short }}
+            ${{ secrets.REGISTRY_URL }}/orion-lms-app:latest
+
+      # Run Trivy Container Scan on the built image before pushing or post-build
+      - name: Run Trivy scan on built image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.REGISTRY_URL }}/orion-lms-app:v1.0.0-${{ steps.vars.outputs.sha_short }}'
+          format: 'table'
+          exit-code: '1' # Blocking
+
+  update-config:
+    name: Update GitOps Config Repository
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout Config Repository
+        uses: actions/checkout@v3
+        with:
+          repository: 'Saswatbisi/Topic-9-CI-Pipeline-GitOps-K8s-Observability-IaC'
+          token: ${{ secrets.GITOPS_PAT }}
+          path: config-repo
+
+      - name: Get version tag
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Update Image Tag in Config Repo (Kustomize patch)
+        run: |
+          cd config-repo/kubernetes/overlays/prod
+          # Using yq to update image tag in prod overlay
+          yq eval '.images[0].newTag = "v1.0.0-${{ steps.vars.outputs.sha_short }}"' -i kustomization.yaml
+          
+      - name: Commit and Push changes
+        run: |
+          cd config-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kubernetes/overlays/prod/kustomization.yaml
+          git commit -m "Auto-bump image tag to v1.0.0-${{ steps.vars.outputs.sha_short }}"
+          git push origin main

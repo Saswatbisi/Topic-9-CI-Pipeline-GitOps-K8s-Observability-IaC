@@ -1,0 +1,30 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: orion-lms-alerts
+  namespace: monitoring
+  labels:
+    role: alert-rules
+spec:
+  groups:
+  - name: orion-application-alerts
+    rules:
+    # 1. Custom Alert: High Error Rate (>5% error rate for 5m)
+    - alert: HighErrorRate
+      expr: sum(rate(http_requests_total{status=~"5.*"}[5m])) / sum(rate(http_requests_total[5m])) * 100 > 5
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "High HTTP error rate detected on {{ $labels.instance }}"
+        description: "The HTTP error rate has exceeded 5% for the last 5 minutes (currently {{ printf \"%.2f\" $value }}%)."
+
+    # 2. Custom Alert: Pod Restarts Detected (restarts in last 10m)
+    - alert: PodRestartsDetected
+      expr: increase(kube_pod_container_status_restarts_total{namespace="orion-prod"}[10m]) > 0
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod restarted in orion-prod namespace"
+        description: "Pod {{ $labels.pod }} container {{ $labels.container }} restarted in the last 10 minutes."

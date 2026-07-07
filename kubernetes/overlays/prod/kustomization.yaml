@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Override replicas to 3 for production
+replicas:
+  - name: orion-lms-deployment
+    count: 3
+
+# Common label for production
+commonLabels:
+  environment: production

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orion-lms-config
+data:
+  NODE_ENV: "production"
+  FRONTEND_URL: "http://orion.local"
+  API_PORT: "9090"

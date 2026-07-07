@@ -1,0 +1,25 @@
+loki:
+  commonConfig:
+    replication_factor: 1
+  auth_enabled: false
+
+# Storage configurations for single-replica minikube deployment
+storage:
+  type: filesystem
+
+singleBinary:
+  replicas: 1
+
+# Disable chunk / index storage backends in cloud for local testing
+memcached:
+  chunk_cache:
+    enabled: false
+  results_cache:
+    enabled: false
+
+# Promtail logging agent configuration to scrape kubernetes container logs
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: http://loki-gateway/loki/api/v1/push
